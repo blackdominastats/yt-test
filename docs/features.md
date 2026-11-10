@@ -100,85 +100,65 @@ To set it up, run `supabase/migrations/004_channels.sql` in the
 to `test` or `everyone` to show channel pages and the "Your channel" menu item.
 While it is off, `/@handle` says "Channels aren't on yet".
 
-## Uploads (R2)
+## Uploads (Supabase Storage)
 
-Signed in people upload videos at `/upload`: drag and drop or pick a file, fill in
-the title, description and visibility while it uploads, and see it land in
-`/studio/videos`. Video files go straight from the browser to a Cloudflare R2
-bucket with presigned URLs, in 16 MB parts, so the app server never touches the
-bytes. Processing (feature 4) turns it into HLS and the watch page (feature 5)
-plays it.
+Signed-in people upload videos at `/upload`. The browser sends the file in
+multipart parts directly to the project's private Supabase Storage bucket using
+its S3-compatible API. The app server signs the requests; it never handles the
+video bytes. The encoder reads the source from the same bucket, creates HLS,
+and writes the playback files back to it.
 
-- MP4, MOV, WebM or MKV, up to 2 GB per file, 10 uploads a day per person.
+- MP4, MOV, WebM or MKV, up to **50 MB per file** on this project's current
+  Free-plan setup; 10 uploads a day per person.
 - Uploading needs a finished sign up (13 or older) and a channel.
 - New videos are private unless the uploader picks unlisted or public.
+- Supabase project-level S3 credentials have access to all Storage buckets and
+  bypass Storage RLS. Keep them server-side only; never use `NEXT_PUBLIC_`.
 
-### 1. Run the migration
+### 1. Apply the migration
 
-Run `supabase/migrations/005_videos.sql` in the
-[SQL editor](https://supabase.com/dashboard/project/_/sql/new)
-(after 001 to 004). It adds the `videos` table, the upload functions and an
-`upload` flag that starts `off`. Switch the flag to `test` or `everyone` to show
-the upload icon in the top bar, `/upload` and `/studio/videos`.
+Run `supabase/migrations/021_supabase_storage.sql` after the existing
+migrations. It creates the private `sloptube-videos` bucket, restricts it to
+50 MB objects and the supported video MIME types, and updates the database
+upload-size check.
 
-### 2. Create the bucket
+### 2. Enable the S3 connection
 
-1. Open [R2 > Create bucket](https://dash.cloudflare.com/?to=/:account/r2/new).
-2. Pick a name, for example `sloptube-videos`, and create it. Leave public
-   access off: nothing in it is served straight to viewers.
+1. In the Supabase dashboard, open **Storage > Configuration > S3**.
+2. Enable the S3 protocol.
+3. Generate an S3 access key and secret key. Save the secret when it is shown;
+   it cannot be retrieved later.
+4. Copy the endpoint and region displayed on that page. Use the direct storage
+   hostname (the endpoint should end in `/storage/v1/s3`).
 
-### 3. Make an API token
+### 3. Configure the website
 
-1. On the R2 overview page, open **Manage R2 API Tokens** (or
-   [this link](https://dash.cloudflare.com/?to=/:account/r2/api-tokens)) and click
-   **Create API token**.
-2. Permissions: **Object Read & Write**.
-3. Under **Specify bucket(s)**, pick only your video bucket.
-4. Create it and copy the **Access Key ID** and the **Secret Access Key**. The
-   secret is shown once.
-5. The **Account ID** is on the R2 overview page.
-
-### 4. Allow uploads from the site (CORS)
-
-The browser uploads each part with a `PUT` to R2 and needs to read the `ETag`
-R2 sends back. In the bucket, open **Settings > CORS Policy > Add CORS policy**
-and paste this, with your own domain:
-
-```json
-[
-  {
-    "AllowedOrigins": ["https://tube.example.com", "http://localhost:3000"],
-    "AllowedMethods": ["PUT"],
-    "AllowedHeaders": ["content-type"],
-    "ExposeHeaders": ["ETag"],
-    "MaxAgeSeconds": 3600
-  }
-]
-```
-
-Without `ExposeHeaders: ETag` every upload fails with "no ETag in the answer".
-
-Optional: under **Settings > Object lifecycle rules**, keep the rule that aborts
-incomplete multipart uploads (1 day is plenty), so parts from closed tabs do
-not pile up.
-
-### 5. Add the four settings
-
-Put these names in `.env.local` for local development and in
-`/opt/sloptube/.env` on the server, with your values after the `=`:
+Add these server-only environment variables to Vercel for Production, Preview
+and Development, then redeploy:
 
 ```bash
-R2_ACCOUNT_ID=
-R2_ACCESS_KEY_ID=
-R2_SECRET_ACCESS_KEY=
-R2_BUCKET=
+SUPABASE_S3_ENDPOINT=
+SUPABASE_S3_REGION=
+SUPABASE_S3_ACCESS_KEY_ID=
+SUPABASE_S3_SECRET_ACCESS_KEY=
+SUPABASE_S3_BUCKET=sloptube-videos
 ```
 
-They are read on the server only, at request time. Never prefix them with
-`NEXT_PUBLIC_` and never commit the values. Restart the app after adding them.
-While they are missing, `/api/upload/sign` answers 501 "uploads not configured"
-and `/upload` shows a notice. With `npm run dev` and no Supabase key, `/upload`
-shows a preview of the page.
+The endpoint, region and credentials must be copied from the project's S3
+configuration page. Never paste the secret key into chat, source control or a
+`NEXT_PUBLIC_` variable.
+
+### 4. Configure the encoder
+
+The separate encoder also needs the same five `SUPABASE_S3_*` values in its
+private environment file, alongside `SUPABASE_URL` and
+`SUPABASE_SERVICE_ROLE_KEY`. Follow
+[`ops/encoder/README.md`](../ops/encoder/README.md). The service-role key and
+S3 secret stay on the encoder server only.
+
+Uploads can be stored after the website's S3 settings are configured. Videos
+will remain in the uploaded/processing state until the encoder is running and
+the `processing` feature flag is enabled.
 
 ## Processing
 
