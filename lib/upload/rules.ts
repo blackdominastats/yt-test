@@ -4,7 +4,7 @@
 
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50 MB on the Supabase Free plan
 export const UPLOADS_PER_DAY = 10;
-/** Every part is 16 MB except the last one. R2 wants at least 5 MB per part. */
+/** Every part is 16 MB except the last one. S3 multipart requires 5 MB per part except the last one. */
 export const PART_SIZE = 16 * 1024 * 1024;
 /** How many parts upload at the same time. */
 export const PARALLEL_PARTS = 3;
