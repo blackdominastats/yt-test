@@ -190,7 +190,7 @@ To set it up:
 3. Switch the `processing` flag to `test` or `everyone`.
 
 Worker tests (ladder, ffmpeg arguments, sprite timing, the loop with Supabase
-and R2 mocked, and a real 3 second encode when ffmpeg is installed):
+and Supabase Storage S3 mocked, and a real 3 second encode when ffmpeg is installed):
 
 ```bash
 npm ci --prefix worker
@@ -229,32 +229,25 @@ stacked under the player.
 
 ### How the player gets the video
 
-The bucket is private, so the browser cannot read it directly. The player asks
-the site instead, at `/api/media/<video>/<file>`:
+The video bucket is private, so the browser cannot read it directly. The player
+asks the site at `/api/media/<video>/<file>`:
 
 1. The route calls `watch_video()` in the database, which decides who may
    watch: public and unlisted videos once they are ready, the owner always.
    Everybody else gets 404, the same as for a video that does not exist.
-2. **Playlists** (`master.m3u8`, `720p/index.m3u8`) and the sprite's `.vtt` are
-   tiny text files. The route reads them from R2 and sends them on, with every
-   file name inside rewritten to point back at the route.
+2. **Playlists** (`master.m3u8`, `720p/index.m3u8`) and the sprite's `.vtt`
+   are small text files. The route reads them from Supabase Storage and sends
+   them on, rewriting file names to point back at the route.
 3. **Video segments**, init files and images get a `302` redirect to a
-   presigned R2 link that works for 10 minutes. The bytes go straight from R2
-   to the browser; the site only signs links, which needs no request to R2.
+   time-limited signed Supabase Storage URL. The bytes go straight to the
+   browser; the site only signs links.
 
-Why not redirect the playlists too: the player would then read the relative
-names inside them against the R2 link and ask R2 for unsigned files, which
-fails. Why not one long lived link per video: anybody could keep sharing it
-after the video goes private. With the route, making a video private stops
-playback within minutes.
+The route proxies playlists because their relative file names must be rewritten
+to pass through the same access check. Making a video private therefore stops
+new playback requests from being signed.
 
-**Optional: a public bucket domain.** If you connect a custom domain to the
-bucket ([Cloudflare docs](https://developers.cloudflare.com/r2/buckets/public-buckets/))
-and set `MEDIA_PUBLIC_URL=https://media.example.com` on the website, the player
-loads `https://media.example.com/hls/<video>/master.m3u8` directly and skips the
-route. That is cheaper and uses Cloudflare's cache, but every file under `hls/`
-is then readable by anybody who knows the video id, including private videos.
-Leave it empty unless that is fine for you.
+Keep `MEDIA_PUBLIC_URL` empty for this private bucket. A public media domain
+would bypass the private-bucket access checks.
 
 ### Set it up
 
@@ -263,24 +256,11 @@ Leave it empty unless that is fine for you.
    (after 001 to 006). It adds `videos.views`, the `watch_video` function and a
    `watch` flag that starts `off`. While it is off, `/watch` shows the feature 4
    page.
-2. Let the player read from R2: in the bucket, **Settings > CORS Policy**, add
-   `GET` and `HEAD` to the allowed methods and `range` to the allowed headers
-   (keep `PUT` for uploads):
-
-   ```json
-   [
-     {
-       "AllowedOrigins": ["https://tube.example.com", "http://localhost:3000"],
-       "AllowedMethods": ["GET", "HEAD", "PUT"],
-       "AllowedHeaders": ["content-type", "range"],
-       "ExposeHeaders": ["ETag"],
-       "MaxAgeSeconds": 3600
-     }
-   ]
-   ```
-
-   hls.js follows the segment redirects with `fetch`, so without `GET` the video
-   never starts.
+2. The managed Supabase Storage S3 endpoint handles browser CORS for its S3
+   routes; no per-bucket R2-style CORS policy is needed. Its multipart
+   `UploadPart` response exposes `ETag`, which the uploader reads to finish
+   the multipart upload. See the
+   [S3 compatibility guide](https://supabase.com/docs/guides/storage/s3/compatibility).
 3. Switch the `watch` flag to `test` or `everyone`.
 
 With `npm run dev` and no Supabase key, `/watch` shows a sample video.
@@ -631,13 +611,13 @@ the channel's picture, white cards on light grey, blue buttons and links.
   video moves to the trash and becomes private everywhere; the trash shows how
   many days are left and Restore puts it back with the visibility it had.
   After 30 days a daily job deletes the video for good, with its comments,
-  likes and views, and queues its files in R2 for the encoder box to remove
-  (see "Emptying the trash in R2" in [ops/encoder/README.md](../ops/encoder/README.md)).
+  likes and views, and queues its files in Supabase Storage for the encoder box to remove
+  (see "Emptying the trash in Supabase Storage" in [ops/encoder/README.md](../ops/encoder/README.md)).
 - **Video details** (`/studio/video/<id>/edit`): title, description, tags (up
   to 15), visibility, the comments setting (feature 10) and "Show this video
   as a Snip" (feature 11), saved with SAVE; UNDO CHANGES goes back. The
   thumbnail is one of the encoder's three stills or a custom JPG, PNG or WebP
-  up to 2 MB, uploaded straight to R2 next to the video's files; a pick saves
+  up to 2 MB, uploaded straight to Supabase Storage next to the video's files; a pick saves
   at once.
 - `/studio/videos` (feature 3) goes to Content while the flag is on.
 - Limits: 60 bulk changes and 60 edits a minute per person.
@@ -645,7 +625,7 @@ the channel's picture, white cards on light grey, blue buttons and links.
 A picked thumbnail shows everywhere when `MEDIA_PUBLIC_URL` is set, or when the
 site runs on https (the link then goes through `/api/media`). Without either,
 for example `npm run dev` on http, only the studio shows the pick. Custom
-thumbnails need the R2 settings and the CORS rule from "Uploads (R2)", which
+thumbnails need the Supabase Storage S3 settings and the S3 settings from "Uploads (Supabase Storage)", which
 already allows the `PUT` they use.
 
 To set it up:
