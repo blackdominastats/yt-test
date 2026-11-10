@@ -388,8 +388,9 @@ export function Uploader({ configured, preview = false }: { configured: boolean;
           <Notice>
             <p className="font-medium">Uploads are not configured on this server yet</p>
             <p className="mt-1 text-text-2">
-              The site owner needs to add the four R2 settings (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
-              R2_BUCKET). See &quot;Uploads (R2)&quot; in the README.
+              The site owner needs to add all five Supabase Storage S3 settings: SUPABASE_S3_ENDPOINT,
+              SUPABASE_S3_REGION, SUPABASE_S3_ACCESS_KEY_ID, SUPABASE_S3_SECRET_ACCESS_KEY and SUPABASE_S3_BUCKET.
+              Check the &quot;Uploads (Supabase Storage)&quot; setup guide.
             </p>
           </Notice>
         )}
