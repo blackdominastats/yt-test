@@ -1,5 +1,4 @@
-// R2 through its S3 API: read the source, write the HLS files, empty the
-// folders of purged videos.
+// Supabase Storage S3 API: read source files, write HLS files and clean up.
 import { createReadStream, createWriteStream } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
@@ -13,11 +12,11 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 
-/** An S3 client pointed at the account's R2 endpoint (same settings as lib/upload/r2.ts in the app). */
-export function createR2Client({ accountId, accessKeyId, secretAccessKey }) {
+/** S3 client pointed at the project's Supabase Storage endpoint. */
+export function createStorageClient({ endpoint, region, accessKeyId, secretAccessKey }) {
   return new S3Client({
-    region: "auto",
-    endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+    region,
+    endpoint,
     credentials: { accessKeyId, secretAccessKey },
     forcePathStyle: true,
     requestChecksumCalculation: "WHEN_REQUIRED",
@@ -82,7 +81,7 @@ export function createStorage(client, bucket) {
 
     async download(key, path, signal) {
       const out = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }), { abortSignal: signal });
-      if (!out.Body) throw new Error("R2 sent no body");
+      if (!out.Body) throw new Error("Supabase Storage returned no body");
       await pipeline(out.Body, createWriteStream(path), { signal });
     },
 
@@ -133,7 +132,7 @@ export function createStorage(client, bucket) {
           new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true } }),
           { abortSignal: signal },
         );
-        if (out.Errors?.length) throw new Error(`R2 kept ${out.Errors.length} objects: ${out.Errors[0].Message ?? out.Errors[0].Code}`);
+        if (out.Errors?.length) throw new Error(`Storage kept ${out.Errors.length} objects: ${out.Errors[0].Message ?? out.Errors[0].Code}`);
         deleted += keys.length;
       }
       throw new Error("too many objects under the prefix");
