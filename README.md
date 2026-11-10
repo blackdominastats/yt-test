@@ -25,7 +25,7 @@ for a video series, so the code, the commits and the docs are meant to be easy
 to follow.
 
 Built with Next.js 16, React 19, Tailwind 4, zustand and Supabase (Postgres and
-Auth). Video files live on Cloudflare R2, a small ffmpeg worker turns uploads
+Auth). Video files live in a private Supabase Storage bucket, a small ffmpeg worker turns uploads
 into HLS, and hls.js plays them. Light by default, with a dark theme.
 
 ![The home feed in the light theme](docs/screenshots/home-light.webp)
@@ -108,8 +108,7 @@ The full setup, with your own database, uploads and a server, is below in
 - [Node.js 22](https://nodejs.org/) (with npm) and [git](https://git-scm.com/)
 - [ffmpeg](https://ffmpeg.org/download.html) for the demo, the encoder worker and
   some checks (not needed to just run the site)
-- For a real site: a free [Supabase](https://supabase.com/) project, and for
-  uploads a [Cloudflare R2](https://developers.cloudflare.com/r2/) bucket
+- For a real site: a [Supabase](https://supabase.com/) project with Storage S3 enabled
 
 ### 1. Get the code and install
 
@@ -195,12 +194,12 @@ flag panel and switch each one to **Off**, **Me** or **Everyone**. More in
 
 ### 5. Uploads and the encoder
 
-1. Create an R2 bucket, an API token and the CORS rule, then put the four
-   `R2_*` settings in `.env.local`: [Uploads (R2)](docs/features.md#uploads-r2).
+1. Apply migration 021, enable Storage S3 and create the private video bucket.
+   Add the five `SUPABASE_S3_*` settings: [Uploads (Supabase Storage)](docs/features.md#uploads-supabase-storage).
 2. Run the encoder worker, which turns uploads into HLS with ffmpeg. Locally:
 
    ```bash
-   cp worker/.env.example worker/.env     # fill in the Supabase secret key and R2
+   cp worker/.env.example worker/.env     # fill in the Supabase secret key and Storage S3 settings
    npm ci --prefix worker
    node --env-file=worker/.env worker/index.mjs
    ```
