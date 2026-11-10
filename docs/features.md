@@ -639,7 +639,7 @@ To set it up:
    `studio` flag that starts `off`. While it is off `/studio` shows a coming
    soon page, the studio routes answer 403, and `/studio/comments`,
    `/studio/channel` and `/studio/videos` work as before without the nav.
-2. Update the encoder box to the new worker image, so it empties the R2
+2. Update the encoder box to the new worker image, so it empties the Supabase Storage
    folders of purged videos.
 3. Switch the `studio` flag to `test` or `everyone`.
 
