@@ -92,7 +92,7 @@ update public.profiles set role = 'admin' where username = '<your username>';
       the table editor, `feature_flags` table, `mode` column. See the
       [cheat sheet](#flags-cheat-sheet) below.
 
-### 4. R2 bucket and CORS
+### 4. Supabase Storage S3
 
 - [ ] Create a private bucket, for example `sloptube-videos`.
 - [ ] Make an R2 API token with **Object Read & Write** on that bucket only.
@@ -134,7 +134,7 @@ into the image):
 | `DOMAIN` | yes | The domain Caddy gets a certificate for |
 | `NEXT_PUBLIC_SUPABASE_URL` | yes | The Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | yes | The publishable key |
-| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | for uploads | The R2 token and bucket |
+| `SUPABASE_S3_ENDPOINT`, `SUPABASE_S3_REGION`, `SUPABASE_S3_ACCESS_KEY_ID`, `SUPABASE_S3_SECRET_ACCESS_KEY`, `SUPABASE_S3_BUCKET` | for uploads | The Supabase Storage S3 credentials and private bucket |
 | `MEDIA_PUBLIC_URL` | no | The bucket's public domain |
 | `SITE_URL` | no | `https://<your domain>`, for canonical links, share cards and the sitemap. Without it the address the browser asked for is used |
 | `FLAGS_PAGE` | no | `1` shows the read only `/flags` page |
@@ -142,7 +142,7 @@ into the image):
 | `SUPABASE_SERVICE_ROLE_KEY` | for Sign in with Yapin' | The Supabase secret key, to sign in Yapin' users. Leave it out otherwise. See [Yapin'](#yapin) |
 
 Encoder, in `/opt/sloptube-encoder/.env`: `SUPABASE_URL`,
-`SUPABASE_SERVICE_ROLE_KEY`, the four `R2_` values, optionally `WORKER_NAME`,
+`SUPABASE_SERVICE_ROLE_KEY`, the five `SUPABASE_S3_*` values, optionally `WORKER_NAME`,
 `MEDIA_PUBLIC_URL` and `SITE_URL` (needed for Yapin' announcements).
 
 ### 9. Last checks
