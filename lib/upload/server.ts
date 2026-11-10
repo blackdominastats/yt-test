@@ -8,7 +8,7 @@ import { jobsFor } from "@/lib/processing/server";
 import { progressFor, type JobInfo } from "@/lib/processing/status";
 import { readSupabaseConfig } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
-import { readR2Config } from "./env";
+import { readStorageConfig } from "./env";
 import type { VideoStatus, Visibility } from "./rules";
 
 export type UploadPageState =
@@ -30,7 +30,7 @@ export async function uploadPageState(): Promise<UploadPageState> {
   if (!(await flagOn("upload", user?.id ?? null))) return { kind: "off", noDb: false };
   if (!user) return { kind: "signed-out" };
   if (!user.onboarded) return { kind: "not-onboarded" };
-  return { kind: "ready", user, configured: readR2Config() !== null };
+  return { kind: "ready", user, configured: readStorageConfig() !== null };
 }
 
 export type StudioVideo = {
