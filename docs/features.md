@@ -100,85 +100,65 @@ To set it up, run `supabase/migrations/004_channels.sql` in the
 to `test` or `everyone` to show channel pages and the "Your channel" menu item.
 While it is off, `/@handle` says "Channels aren't on yet".
 
-## Uploads (R2)
+## Uploads (Supabase Storage)
 
-Signed in people upload videos at `/upload`: drag and drop or pick a file, fill in
-the title, description and visibility while it uploads, and see it land in
-`/studio/videos`. Video files go straight from the browser to a Cloudflare R2
-bucket with presigned URLs, in 16 MB parts, so the app server never touches the
-bytes. Processing (feature 4) turns it into HLS and the watch page (feature 5)
-plays it.
+Signed-in people upload videos at `/upload`. The browser sends the file in
+multipart parts directly to the project's private Supabase Storage bucket using
+its S3-compatible API. The app server signs the requests; it never handles the
+video bytes. The encoder reads the source from the same bucket, creates HLS,
+and writes the playback files back to it.
 
-- MP4, MOV, WebM or MKV, up to 2 GB per file, 10 uploads a day per person.
+- MP4, MOV, WebM or MKV, up to **50 MB per file** on this project's current
+  Free-plan setup; 10 uploads a day per person.
 - Uploading needs a finished sign up (13 or older) and a channel.
 - New videos are private unless the uploader picks unlisted or public.
+- Supabase project-level S3 credentials have access to all Storage buckets and
+  bypass Storage RLS. Keep them server-side only; never use `NEXT_PUBLIC_`.
 
-### 1. Run the migration
+### 1. Apply the migration
 
-Run `supabase/migrations/005_videos.sql` in the
-[SQL editor](https://supabase.com/dashboard/project/_/sql/new)
-(after 001 to 004). It adds the `videos` table, the upload functions and an
-`upload` flag that starts `off`. Switch the flag to `test` or `everyone` to show
-the upload icon in the top bar, `/upload` and `/studio/videos`.
+Run `supabase/migrations/021_supabase_storage.sql` after the existing
+migrations. It creates the private `sloptube-videos` bucket, restricts it to
+50 MB objects and the supported video MIME types, and updates the database
+upload-size check.
 
-### 2. Create the bucket
+### 2. Enable the S3 connection
 
-1. Open [R2 > Create bucket](https://dash.cloudflare.com/?to=/:account/r2/new).
-2. Pick a name, for example `sloptube-videos`, and create it. Leave public
-   access off: nothing in it is served straight to viewers.
+1. In the Supabase dashboard, open **Storage > Configuration > S3**.
+2. Enable the S3 protocol.
+3. Generate an S3 access key and secret key. Save the secret when it is shown;
+   it cannot be retrieved later.
+4. Copy the endpoint and region displayed on that page. Use the direct storage
+   hostname (the endpoint should end in `/storage/v1/s3`).
 
-### 3. Make an API token
+### 3. Configure the website
 
-1. On the R2 overview page, open **Manage R2 API Tokens** (or
-   [this link](https://dash.cloudflare.com/?to=/:account/r2/api-tokens)) and click
-   **Create API token**.
-2. Permissions: **Object Read & Write**.
-3. Under **Specify bucket(s)**, pick only your video bucket.
-4. Create it and copy the **Access Key ID** and the **Secret Access Key**. The
-   secret is shown once.
-5. The **Account ID** is on the R2 overview page.
-
-### 4. Allow uploads from the site (CORS)
-
-The browser uploads each part with a `PUT` to R2 and needs to read the `ETag`
-R2 sends back. In the bucket, open **Settings > CORS Policy > Add CORS policy**
-and paste this, with your own domain:
-
-```json
-[
-  {
-    "AllowedOrigins": ["https://tube.example.com", "http://localhost:3000"],
-    "AllowedMethods": ["PUT"],
-    "AllowedHeaders": ["content-type"],
-    "ExposeHeaders": ["ETag"],
-    "MaxAgeSeconds": 3600
-  }
-]
-```
-
-Without `ExposeHeaders: ETag` every upload fails with "no ETag in the answer".
-
-Optional: under **Settings > Object lifecycle rules**, keep the rule that aborts
-incomplete multipart uploads (1 day is plenty), so parts from closed tabs do
-not pile up.
-
-### 5. Add the four settings
-
-Put these names in `.env.local` for local development and in
-`/opt/sloptube/.env` on the server, with your values after the `=`:
+Add these server-only environment variables to Vercel for Production, Preview
+and Development, then redeploy:
 
 ```bash
-R2_ACCOUNT_ID=
-R2_ACCESS_KEY_ID=
-R2_SECRET_ACCESS_KEY=
-R2_BUCKET=
+SUPABASE_S3_ENDPOINT=
+SUPABASE_S3_REGION=
+SUPABASE_S3_ACCESS_KEY_ID=
+SUPABASE_S3_SECRET_ACCESS_KEY=
+SUPABASE_S3_BUCKET=sloptube-videos
 ```
 
-They are read on the server only, at request time. Never prefix them with
-`NEXT_PUBLIC_` and never commit the values. Restart the app after adding them.
-While they are missing, `/api/upload/sign` answers 501 "uploads not configured"
-and `/upload` shows a notice. With `npm run dev` and no Supabase key, `/upload`
-shows a preview of the page.
+The endpoint, region and credentials must be copied from the project's S3
+configuration page. Never paste the secret key into chat, source control or a
+`NEXT_PUBLIC_` variable.
+
+### 4. Configure the encoder
+
+The separate encoder also needs the same five `SUPABASE_S3_*` values in its
+private environment file, alongside `SUPABASE_URL` and
+`SUPABASE_SERVICE_ROLE_KEY`. Follow
+[`ops/encoder/README.md`](../ops/encoder/README.md). The service-role key and
+S3 secret stay on the encoder server only.
+
+Uploads can be stored after the website's S3 settings are configured. Videos
+will remain in the uploaded/processing state until the encoder is running and
+the `processing` feature flag is enabled.
 
 ## Processing
 
@@ -210,7 +190,7 @@ To set it up:
 3. Switch the `processing` flag to `test` or `everyone`.
 
 Worker tests (ladder, ffmpeg arguments, sprite timing, the loop with Supabase
-and R2 mocked, and a real 3 second encode when ffmpeg is installed):
+and Supabase Storage S3 mocked, and a real 3 second encode when ffmpeg is installed):
 
 ```bash
 npm ci --prefix worker
@@ -249,32 +229,25 @@ stacked under the player.
 
 ### How the player gets the video
 
-The bucket is private, so the browser cannot read it directly. The player asks
-the site instead, at `/api/media/<video>/<file>`:
+The video bucket is private, so the browser cannot read it directly. The player
+asks the site at `/api/media/<video>/<file>`:
 
 1. The route calls `watch_video()` in the database, which decides who may
    watch: public and unlisted videos once they are ready, the owner always.
    Everybody else gets 404, the same as for a video that does not exist.
-2. **Playlists** (`master.m3u8`, `720p/index.m3u8`) and the sprite's `.vtt` are
-   tiny text files. The route reads them from R2 and sends them on, with every
-   file name inside rewritten to point back at the route.
+2. **Playlists** (`master.m3u8`, `720p/index.m3u8`) and the sprite's `.vtt`
+   are small text files. The route reads them from Supabase Storage and sends
+   them on, rewriting file names to point back at the route.
 3. **Video segments**, init files and images get a `302` redirect to a
-   presigned R2 link that works for 10 minutes. The bytes go straight from R2
-   to the browser; the site only signs links, which needs no request to R2.
+   time-limited signed Supabase Storage URL. The bytes go straight to the
+   browser; the site only signs links.
 
-Why not redirect the playlists too: the player would then read the relative
-names inside them against the R2 link and ask R2 for unsigned files, which
-fails. Why not one long lived link per video: anybody could keep sharing it
-after the video goes private. With the route, making a video private stops
-playback within minutes.
+The route proxies playlists because their relative file names must be rewritten
+to pass through the same access check. Making a video private therefore stops
+new playback requests from being signed.
 
-**Optional: a public bucket domain.** If you connect a custom domain to the
-bucket ([Cloudflare docs](https://developers.cloudflare.com/r2/buckets/public-buckets/))
-and set `MEDIA_PUBLIC_URL=https://media.example.com` on the website, the player
-loads `https://media.example.com/hls/<video>/master.m3u8` directly and skips the
-route. That is cheaper and uses Cloudflare's cache, but every file under `hls/`
-is then readable by anybody who knows the video id, including private videos.
-Leave it empty unless that is fine for you.
+Keep `MEDIA_PUBLIC_URL` empty for this private bucket. A public media domain
+would bypass the private-bucket access checks.
 
 ### Set it up
 
@@ -283,24 +256,11 @@ Leave it empty unless that is fine for you.
    (after 001 to 006). It adds `videos.views`, the `watch_video` function and a
    `watch` flag that starts `off`. While it is off, `/watch` shows the feature 4
    page.
-2. Let the player read from R2: in the bucket, **Settings > CORS Policy**, add
-   `GET` and `HEAD` to the allowed methods and `range` to the allowed headers
-   (keep `PUT` for uploads):
-
-   ```json
-   [
-     {
-       "AllowedOrigins": ["https://tube.example.com", "http://localhost:3000"],
-       "AllowedMethods": ["GET", "HEAD", "PUT"],
-       "AllowedHeaders": ["content-type", "range"],
-       "ExposeHeaders": ["ETag"],
-       "MaxAgeSeconds": 3600
-     }
-   ]
-   ```
-
-   hls.js follows the segment redirects with `fetch`, so without `GET` the video
-   never starts.
+2. The managed Supabase Storage S3 endpoint handles browser CORS for its S3
+   routes; no per-bucket R2-style CORS policy is needed. Its multipart
+   `UploadPart` response exposes `ETag`, which the uploader reads to finish
+   the multipart upload. See the
+   [S3 compatibility guide](https://supabase.com/docs/guides/storage/s3/compatibility).
 3. Switch the `watch` flag to `test` or `everyone`.
 
 With `npm run dev` and no Supabase key, `/watch` shows a sample video.
@@ -651,13 +611,13 @@ the channel's picture, white cards on light grey, blue buttons and links.
   video moves to the trash and becomes private everywhere; the trash shows how
   many days are left and Restore puts it back with the visibility it had.
   After 30 days a daily job deletes the video for good, with its comments,
-  likes and views, and queues its files in R2 for the encoder box to remove
-  (see "Emptying the trash in R2" in [ops/encoder/README.md](../ops/encoder/README.md)).
+  likes and views, and queues its files in Supabase Storage for the encoder box to remove
+  (see "Emptying the trash in Supabase Storage" in [ops/encoder/README.md](../ops/encoder/README.md)).
 - **Video details** (`/studio/video/<id>/edit`): title, description, tags (up
   to 15), visibility, the comments setting (feature 10) and "Show this video
   as a Snip" (feature 11), saved with SAVE; UNDO CHANGES goes back. The
   thumbnail is one of the encoder's three stills or a custom JPG, PNG or WebP
-  up to 2 MB, uploaded straight to R2 next to the video's files; a pick saves
+  up to 2 MB, uploaded straight to Supabase Storage next to the video's files; a pick saves
   at once.
 - `/studio/videos` (feature 3) goes to Content while the flag is on.
 - Limits: 60 bulk changes and 60 edits a minute per person.
@@ -665,7 +625,7 @@ the channel's picture, white cards on light grey, blue buttons and links.
 A picked thumbnail shows everywhere when `MEDIA_PUBLIC_URL` is set, or when the
 site runs on https (the link then goes through `/api/media`). Without either,
 for example `npm run dev` on http, only the studio shows the pick. Custom
-thumbnails need the R2 settings and the CORS rule from "Uploads (R2)", which
+thumbnails need the Supabase Storage S3 settings and the S3 settings from "Uploads (Supabase Storage)", which
 already allows the `PUT` they use.
 
 To set it up:
@@ -679,7 +639,7 @@ To set it up:
    `studio` flag that starts `off`. While it is off `/studio` shows a coming
    soon page, the studio routes answer 403, and `/studio/comments`,
    `/studio/channel` and `/studio/videos` work as before without the nav.
-2. Update the encoder box to the new worker image, so it empties the R2
+2. Update the encoder box to the new worker image, so it empties the Supabase Storage
    folders of purged videos.
 3. Switch the `studio` flag to `test` or `everyone`.
 

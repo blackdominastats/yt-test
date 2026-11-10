@@ -10,11 +10,11 @@ It takes about 15 minutes. You need:
 - a [Hetzner Cloud](https://console.hetzner.cloud/) account
 - the Supabase **secret key** (service role) from the
   [API keys page](https://supabase.com/dashboard/project/_/settings/api-keys)
-- the R2 bucket and an R2 API token (see [Uploads (R2)](../../docs/features.md#uploads-r2) in the feature docs)
+- the private Supabase Storage bucket and S3 credentials (see [Uploads (Supabase Storage)](../../docs/features.md#uploads-supabase-storage) in the feature docs)
 - migration `supabase/migrations/006_processing.sql` applied (see step 6)
 
 How it works once it is set up: the worker asks the database for a job every
-5 seconds. When someone finishes an upload it downloads the file from R2,
+5 seconds. When someone finishes an upload it downloads the file from Supabase Storage,
 encodes it, uploads the result to `hls/<video id>/` in the same bucket and marks
 the video ready. One video at a time. When you push `main` to `release` and the
 worker code changed, GitHub builds a new image and the box switches to it within
@@ -68,10 +68,11 @@ explained in [`worker/.env.example`](../../worker/.env.example)):
 ```bash
 SUPABASE_URL=https://<project-ref>.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=
-R2_ACCOUNT_ID=
-R2_ACCESS_KEY_ID=
-R2_SECRET_ACCESS_KEY=
-R2_BUCKET=
+SUPABASE_S3_ENDPOINT=
+SUPABASE_S3_REGION=
+SUPABASE_S3_ACCESS_KEY_ID=
+SUPABASE_S3_SECRET_ACCESS_KEY=
+SUPABASE_S3_BUCKET=sloptube-videos
 
 # Optional:
 # WORKER_NAME=encoder-1
@@ -87,12 +88,10 @@ Where each value comes from:
 | --- | --- |
 | `SUPABASE_URL` | [API settings](https://supabase.com/dashboard/project/_/settings/api), **Project URL** |
 | `SUPABASE_SERVICE_ROLE_KEY` | [API keys](https://supabase.com/dashboard/project/_/settings/api-keys), a **Secret key** (or the legacy `service_role` key) |
-| `R2_ACCOUNT_ID` | the [R2 overview page](https://dash.cloudflare.com/?to=/:account/r2/overview), **Account ID** |
-| `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | [Manage R2 API Tokens](https://dash.cloudflare.com/?to=/:account/r2/api-tokens), **Create API token** with **Object Read & Write** on the video bucket only. A separate token for the encoder makes it easy to revoke. |
-| `R2_BUCKET` | the name of the video bucket, the same as the website uses |
-| `WORKER_NAME` | optional, shown in the `encode_jobs.worker` column. Defaults to the server's name. Give every encoder box its own. |
-| `MEDIA_PUBLIC_URL` | optional. If you connect a [custom domain to the bucket](https://developers.cloudflare.com/r2/buckets/public-buckets/), put it here and `thumbnail_url` is filled in. Without it the site serves the thumbnail through `/api/media`. Use the same value on the website (see "Watch page" in the main README). |
-| `SITE_URL` | optional. The website's address, like `https://tube.example.com`, without a slash at the end. The encoder needs it for the links in Yapin' announcements (feature 16, see "Yapin'" in the main README). Without it no announcements are posted. |
+| `SUPABASE_S3_ENDPOINT` | The endpoint copied from **Storage > Configuration > S3**; use the direct storage hostname and keep the `/storage/v1/s3` path. |
+| `SUPABASE_S3_REGION` | The region shown beside the endpoint in the S3 configuration page. |
+| `SUPABASE_S3_ACCESS_KEY_ID`, `SUPABASE_S3_SECRET_ACCESS_KEY` | The project-level S3 access key pair generated in **Storage > Configuration > S3**. The secret is shown once. These credentials bypass Storage RLS and access all Storage buckets, so keep them only in the server environment. |
+| `SUPABASE_S3_BUCKET` | `sloptube-videos`, the private bucket created by migration 021. |
 
 **The secret key can read and change everything in the database.** It lives only
 in this file on this box: never in the repository, never in a chat, and in the
@@ -192,7 +191,7 @@ Everything for a video lives under `hls/<video id>/` in the bucket:
 Custom thumbnails from the studio (feature 12) land in the same folder as
 `custom-<random>.jpg`, `.png` or `.webp`. The website writes those, not the encoder.
 
-## Emptying the trash in R2
+## Emptying the trash in Supabase Storage
 
 Videos deleted in the studio stay in the trash for 30 days. Then the daily
 `purge_trash()` (migration 014, pg_cron) deletes the row and queues the video's
@@ -212,7 +211,7 @@ deleting. Nothing to set up beyond migration 014.
   **Failed** in `/studio/videos` with the reason. The `encode_jobs` table in the
   [table editor](https://supabase.com/dashboard/project/_/editor)
   has the details.
-- An upload whose size in R2 does not match what the browser said is refused
+- An upload whose size in Supabase Storage does not match what the browser said is refused
   right away, without retries.
 - If the box crashes during an encode, the worker gives the job back when it
   starts again. A job stuck as `running` for more than 2 h 15 min is taken back

@@ -5,10 +5,11 @@ import { YAPIN_WEBHOOK_HOSTS } from "./yapin.mjs";
 export const REQUIRED_ENV = [
   "SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
-  "R2_ACCOUNT_ID",
-  "R2_ACCESS_KEY_ID",
-  "R2_SECRET_ACCESS_KEY",
-  "R2_BUCKET",
+  "SUPABASE_S3_ENDPOINT",
+  "SUPABASE_S3_REGION",
+  "SUPABASE_S3_ACCESS_KEY_ID",
+  "SUPABASE_S3_SECRET_ACCESS_KEY",
+  "SUPABASE_S3_BUCKET",
 ];
 
 /**
@@ -30,12 +31,13 @@ export function readConfig(env = process.env) {
     missing,
     supabaseUrl: get("SUPABASE_URL"),
     serviceRoleKey: get("SUPABASE_SERVICE_ROLE_KEY"),
-    r2: {
-      accountId: get("R2_ACCOUNT_ID"),
-      accessKeyId: get("R2_ACCESS_KEY_ID"),
-      secretAccessKey: get("R2_SECRET_ACCESS_KEY"),
+    storage: {
+      endpoint: get("SUPABASE_S3_ENDPOINT"),
+      region: get("SUPABASE_S3_REGION"),
+      accessKeyId: get("SUPABASE_S3_ACCESS_KEY_ID"),
+      secretAccessKey: get("SUPABASE_S3_SECRET_ACCESS_KEY"),
     },
-    bucket: get("R2_BUCKET"),
+    bucket: get("SUPABASE_S3_BUCKET"),
     workerName: get("WORKER_NAME") || hostname(),
     workDir: get("WORK_DIR") || tmpdir(),
     stateDir: get("STATE_DIR") || null,

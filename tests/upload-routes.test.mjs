@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { abortUpload, completeUpload, signUpload } from "../lib/upload/handlers.ts";
-import { createR2Client, createR2Storage } from "../lib/upload/r2.ts";
+import { createStorageClient, createStorageAdapter } from "../lib/upload/r2.ts";
 import { PART_SIZE, sourceKey } from "../lib/upload/rules.ts";
 
 const OWNER = "11111111-2222-3333-4444-555555555555";
@@ -11,7 +11,7 @@ const OTHER = "99999999-8888-7777-6666-555555555555";
 const MB = 1024 * 1024;
 
 function setup({ userId = OWNER, flag = true, storage = true, db = true, headSize } = {}) {
-  const client = createR2Client({ accountId: "example", accessKeyId: "test-key-id", secretAccessKey: "test-secret" });
+  const client = createStorageClient({ endpoint: "https://projectref.storage.supabase.co/storage/v1/s3", region: "eu-west-2", accessKeyId: "test-key-id", secretAccessKey: "test-secret" });
   const calls = [];
   const objects = new Map();
   client.send = async (command) => {
@@ -35,7 +35,7 @@ function setup({ userId = OWNER, flag = true, storage = true, db = true, headSiz
   let n = 0;
   const fakeDb = {
     async createUpload(title, bytes, mime) {
-      if (bytes > 2 * 1024 * MB) return { error: "file_too_big" };
+      if (bytes > 50 * MB) return { error: "file_too_big" };
       const id = `aaaaaaaa-bbbb-cccc-dddd-${String(++n).padStart(12, "0")}`;
       const key = sourceKey(userId, id, mime);
       videos.set(id, { id, ownerId: userId, status: "uploading", sourceKey: key, sourceBytes: bytes, sourceMime: mime, title });
@@ -60,7 +60,7 @@ function setup({ userId = OWNER, flag = true, storage = true, db = true, headSiz
   };
 
   const ctx = {
-    storage: storage ? createR2Storage(client, "sloptube-test") : null,
+    storage: storage ? createStorageAdapter(client, "sloptube-test") : null,
     db: db ? fakeDb : null,
     userId: async () => userId,
     flagOn: async () => flag,
@@ -105,8 +105,8 @@ test("sign: starts a multipart upload and presigns one URL per 16 MB part", asyn
   assert.equal(calls[0].input.ContentType, "video/webm");
 
   const url = new URL(res.body.parts[2].url);
-  assert.equal(url.hostname, "example.r2.cloudflarestorage.com");
-  assert.equal(url.pathname, "/sloptube-test/" + res.body.key);
+  assert.equal(url.hostname, "projectref.storage.supabase.co");
+  assert.equal(url.pathname, "/storage/v1/s3/sloptube-test/" + res.body.key);
   assert.equal(url.searchParams.get("partNumber"), "3");
   assert.equal(url.searchParams.get("uploadId"), "upload-1");
   assert.equal(url.searchParams.get("X-Amz-Expires"), "21600");

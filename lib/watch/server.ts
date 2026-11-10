@@ -7,8 +7,8 @@ import { jobsFor } from "@/lib/processing/server";
 import { progressFor, type LiveStatus } from "@/lib/processing/status";
 import { readSupabaseConfig } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
-import { readR2Config } from "@/lib/upload/env";
-import { createR2Client } from "@/lib/upload/r2";
+import { readStorageConfig } from "@/lib/upload/env";
+import { createStorageClient } from "@/lib/upload/r2";
 import { playbackUrls, readPublicBase, type MediaContext, type MediaVideo } from "./media";
 import { createMediaStorage } from "./r2";
 import type { UpNextVideo, WatchRendition, WatchVideo } from "./types";
@@ -29,7 +29,7 @@ export function mediaPublicBase(): string | null {
 /** The real Supabase, flag and R2 for /api/media/[video]/[...path]. */
 export async function mediaContext(): Promise<MediaContext> {
   const supabase = await createClient();
-  const r2 = readR2Config();
+  const storageConfig = readStorageConfig();
   return {
     db: supabase
       ? {
@@ -41,7 +41,7 @@ export async function mediaContext(): Promise<MediaContext> {
         }
       : null,
     flagOn: () => flagOn("watch"),
-    storage: r2 ? createMediaStorage(createR2Client(r2), r2.bucket) : null,
+    storage: storageConfig ? createMediaStorage(createStorageClient(storageConfig), storageConfig.bucket) : null,
   };
 }
 

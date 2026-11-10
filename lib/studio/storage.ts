@@ -1,25 +1,25 @@
 import "server-only";
 import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { readR2Config } from "@/lib/upload/env";
-import { createR2Client } from "@/lib/upload/r2";
+import { readStorageConfig } from "@/lib/upload/env";
+import { createStorageClient } from "@/lib/upload/r2";
 
 /** How long a signed thumbnail link works in the studio, and how long an upload link does. */
 const VIEW_TTL_S = 60 * 60;
 const PUT_TTL_S = 10 * 60;
 
-function r2() {
-  const config = readR2Config();
-  return config ? { client: createR2Client(config), bucket: config.bucket } : null;
+function storage() {
+  const config = readStorageConfig();
+  return config ? { client: createStorageClient(config), bucket: config.bucket } : null;
 }
 
 export function storageConfigured(): boolean {
-  return readR2Config() !== null;
+  return readStorageConfig() !== null;
 }
 
-/** A short lived GET link to one object, made locally. Null without R2 settings. */
+/** A short lived GET link to one object, made locally. Null without Supabase Storage settings. */
 export async function signedGet(key: string): Promise<string | null> {
-  const s = r2();
+  const s = storage();
   if (!s) return null;
   try {
     return await getSignedUrl(s.client, new GetObjectCommand({ Bucket: s.bucket, Key: key }), { expiresIn: VIEW_TTL_S });
@@ -30,7 +30,7 @@ export async function signedGet(key: string): Promise<string | null> {
 
 /** A PUT link for a custom thumbnail. The browser must send this content type. */
 export async function signedPut(key: string, mime: string): Promise<string | null> {
-  const s = r2();
+  const s = storage();
   if (!s) return null;
   return getSignedUrl(
     s.client,
@@ -41,7 +41,7 @@ export async function signedPut(key: string, mime: string): Promise<string | nul
 
 /** Size and type of an object, or null when it is not there. */
 export async function headObject(key: string): Promise<{ bytes: number; type: string | null } | null> {
-  const s = r2();
+  const s = storage();
   if (!s) return null;
   try {
     const out = await s.client.send(new HeadObjectCommand({ Bucket: s.bucket, Key: key }));
@@ -54,7 +54,7 @@ export async function headObject(key: string): Promise<{ bytes: number; type: st
 }
 
 export async function deleteObject(key: string): Promise<void> {
-  const s = r2();
+  const s = storage();
   if (!s) return;
   await s.client.send(new DeleteObjectCommand({ Bucket: s.bucket, Key: key })).catch(() => {});
 }

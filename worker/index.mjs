@@ -2,10 +2,10 @@
 // sloptube encoder worker.
 //
 // Polls claim_encode_job every 5 seconds with the Supabase service role key,
-// downloads the source from R2, encodes it to HLS (360p, 720p, 1080p as the
+// downloads the source from Supabase Storage, encodes it to HLS (360p, 720p, 1080p as the
 // source allows), makes thumbnails and the hover preview sprite, uploads it
-// all to R2 under hls/<video>/ and calls encode_done. One job at a time.
-// Between jobs it empties the R2 folders of videos the studio trash purged.
+// all to Supabase Storage under hls/<video>/ and calls encode_done. One job at a time.
+// Between jobs it empties the Storage folders of videos the studio trash purged.
 //
 // Settings come from the environment, see lib/env.mjs and ops/encoder/README.md.
 //   node index.mjs
@@ -14,7 +14,7 @@ import { readConfig } from "./lib/env.mjs";
 import { createLogger } from "./lib/log.mjs";
 import { runLoop, sleep } from "./lib/loop.mjs";
 import { run } from "./lib/run.mjs";
-import { createR2Client, createStorage } from "./lib/storage.mjs";
+import { createStorageClient, createStorage } from "./lib/storage.mjs";
 
 const log = createLogger();
 const config = readConfig();
@@ -44,7 +44,7 @@ for (const sig of ["SIGTERM", "SIGINT"]) {
 
 await runLoop({
   db: createDb(createSupabase(config.supabaseUrl, config.serviceRoleKey)),
-  storage: createStorage(createR2Client(config.r2), config.bucket),
+  storage: createStorage(createStorageClient(config.storage), config.bucket),
   log,
   config,
   stopSignal: stop.signal,

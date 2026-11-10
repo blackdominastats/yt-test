@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { cleanMediaPath, playbackUrls, readPublicBase, serveMedia } from "../lib/watch/media.ts";
 import { resolveEntry, rewritePlaylist } from "../lib/watch/playlist.ts";
 import { createMediaStorage } from "../lib/watch/r2.ts";
-import { createR2Client } from "../lib/upload/r2.ts";
+import { createStorageClient } from "../lib/upload/r2.ts";
 
 const PUBLIC = "aaaaaaaa-0000-4000-8000-000000000001";
 const UNLISTED = "aaaaaaaa-0000-4000-8000-000000000002";
@@ -49,7 +49,7 @@ function setup({ owner = false, db = true, flag = true, storage = true } = {}) {
     [PRIVATE]: { visibility: "private", status: "ready" },
     [PROCESSING]: { visibility: "public", status: "processing" },
   };
-  const client = createR2Client({ accountId: "example", accessKeyId: "test-key-id", secretAccessKey: "test-secret" });
+  const client = createStorageClient({ endpoint: "https://projectref.storage.supabase.co/storage/v1/s3", region: "eu-west-2", accessKeyId: "test-key-id", secretAccessKey: "test-secret" });
   const calls = [];
   client.send = async (command) => {
     const name = command.constructor.name;
@@ -115,8 +115,8 @@ test("media: segments redirect to a presigned R2 link for 10 minutes", async () 
   const r = await serveMedia(UNLISTED, ["720p", "seg_00001.m4s"], ctx);
   assert.equal(r.status, 302);
   const url = new URL(r.headers.location);
-  assert.equal(url.host, "example.r2.cloudflarestorage.com");
-  assert.equal(url.pathname, `/videos-test/hls/${UNLISTED}/720p/seg_00001.m4s`);
+  assert.equal(url.host, "projectref.storage.supabase.co");
+  assert.equal(url.pathname, `/storage/v1/s3/videos-test/hls/${UNLISTED}/720p/seg_00001.m4s`);
   assert.equal(url.searchParams.get("X-Amz-Expires"), "600");
   assert.ok(url.searchParams.get("X-Amz-Signature"));
   assert.equal(r.headers["cache-control"], "private, max-age=300");
